@@ -27,7 +27,7 @@ from .const import (
 
 
 class PowerpalConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Two-step flow: discover (or pick) device, then enter pairing code & meter rate."""
+    """Two-step config flow: discover (or pick) device, then settings."""
 
     VERSION = 1
 

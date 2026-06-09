@@ -229,7 +229,7 @@ class RestorePulsesFromSnapshot(unittest.TestCase):
             "calibration_ppkwh": "bogus",
         }
         # Should treat calibration as current and not rescale.
-        total, daily, day = restore_pulses_from_snapshot(snap, 800)
+        total, daily, _ = restore_pulses_from_snapshot(snap, 800)
         self.assertEqual(total, 5000)
         self.assertEqual(daily, 100)
 

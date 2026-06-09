@@ -98,7 +98,7 @@ class PowerpalCoordinator:
         for listener in list(self._listeners):
             try:
                 listener(state)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.exception(
                     "Powerpal listener raised; continuing with remaining listeners"
                 )
@@ -205,7 +205,7 @@ class PowerpalCoordinator:
         try:
             await self._client.start()
             return True
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             _LOGGER.warning(
                 "Failed to (re)connect to Powerpal %s: %s", self.address, err
             )
@@ -213,7 +213,10 @@ class PowerpalCoordinator:
 
     def _seed_state_from_restored(self) -> None:
         """Apply persisted accumulators to the freshly-constructed client.
-        Decoding (migration + rescale) lives in `_protocol.restore_pulses_from_snapshot`."""
+
+        Decoding (migration + rescale) is in
+        `_protocol.restore_pulses_from_snapshot`.
+        """
         assert self._client is not None
         total_pulses, daily_pulses, day_key = restore_pulses_from_snapshot(
             self._restored_state, self._pulses_per_kwh

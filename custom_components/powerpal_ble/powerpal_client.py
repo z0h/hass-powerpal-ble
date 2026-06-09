@@ -17,9 +17,10 @@ Byte-level operations live in `_protocol.py` so they can be unit-tested.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime as dt
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from bleak.backends.device import BLEDevice
@@ -61,9 +62,7 @@ class PowerpalState:
     day_key: int = field(default=0, repr=False)  # ordinal of local date
 
 
-StateCallback = (
-    Callable[[PowerpalState], None] | Callable[[PowerpalState], Awaitable[None]]
-)
+StateCallback = Callable[[PowerpalState], None]
 
 
 class PowerpalClient:
@@ -234,11 +233,9 @@ class PowerpalClient:
         loop = self._loop
         if loop is None or loop.is_closed():
             return
-        try:
+        # Loop may close between the is_closed() check and the call (HA shutdown).
+        with contextlib.suppress(RuntimeError):
             loop.call_soon_threadsafe(fn, *args)
-        except RuntimeError:
-            # Loop closed between the is_closed() check and call. Discard.
-            pass
 
     # -------- Packet handling (always on the loop thread) --------
 
@@ -295,6 +292,8 @@ class PowerpalClient:
         cb = self._on_update
         if cb is None:
             return
-        result = cb(self.state)
-        if asyncio.iscoroutine(result):
-            asyncio.create_task(result)
+        # The only registered listener is the coordinator's `_async_handle_state`,
+        # which is `@callback`-decorated and synchronous. We do NOT accept
+        # coroutine callbacks here — wrapping with create_task() would risk
+        # losing the task reference and the result silently disappearing.
+        cb(self.state)

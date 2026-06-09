@@ -27,6 +27,7 @@ Known correctness note vs the reference:
 from __future__ import annotations
 
 import struct
+from typing import Any
 
 
 def encode_pairing_code(code: int) -> bytes:
@@ -67,7 +68,7 @@ def kwh_from_pulses(pulses: int, pulses_per_kwh: float) -> float:
 
 
 def restore_pulses_from_snapshot(
-    snapshot: dict | None,
+    snapshot: dict[str, Any] | None,
     current_pulses_per_kwh: float,
 ) -> tuple[int, int, int]:
     """Decode a persisted accumulator snapshot into (total_pulses,
@@ -88,12 +89,12 @@ def restore_pulses_from_snapshot(
     daily_pulses = snapshot.get("daily_pulses")
 
     if total_pulses is None and "total_energy_kwh" in snapshot:
-        total_pulses = int(round(
+        total_pulses = round(
             float(snapshot["total_energy_kwh"]) * current_pulses_per_kwh
-        ))
-        daily_pulses = int(round(
+        )
+        daily_pulses = round(
             float(snapshot.get("daily_energy_kwh", 0.0)) * current_pulses_per_kwh
-        ))
+        )
 
     total_pulses = int(total_pulses or 0)
     daily_pulses = int(daily_pulses or 0)
@@ -115,7 +116,7 @@ def restore_pulses_from_snapshot(
         calibration != current_pulses_per_kwh and total_pulses
     ):
         ratio = current_pulses_per_kwh / calibration
-        total_pulses = int(round(total_pulses * ratio))
-        daily_pulses = int(round(daily_pulses * ratio))
+        total_pulses = round(total_pulses * ratio)
+        daily_pulses = round(daily_pulses * ratio)
 
     return (total_pulses, daily_pulses, day_key)

@@ -72,7 +72,9 @@ async def _initial_advert_seen(hass: HomeAssistant, entry: PowerpalConfigEntry) 
     return async_address_present(hass, entry.data[CONF_ADDRESS])
 
 
-async def _async_update_listener(hass: HomeAssistant, entry: PowerpalConfigEntry) -> None:
+async def _async_update_listener(
+    hass: HomeAssistant, entry: PowerpalConfigEntry
+) -> None:
     """Reload the entry so settings changes (pulses, interval) take effect."""
     await hass.config_entries.async_reload(entry.entry_id)
 
