@@ -3,9 +3,15 @@
     "flow_title": "{name}",
     "step": {
       "user": {
-        "description": "Pick a discovered Powerpal device.",
+        "description": "Pick a discovered Powerpal — or choose 'Enter address manually' if yours isn't currently advertising (battery devices like Powerpal advertise sparsely).",
         "data": {
           "address": "Device"
+        }
+      },
+      "manual": {
+        "description": "Enter the Powerpal's Bluetooth MAC address (e.g. AA:BB:CC:DD:EE:FF). You can find it in the Powerpal phone app.",
+        "data": {
+          "address": "Bluetooth address"
         }
       },
       "settings": {
@@ -18,7 +24,6 @@
       }
     },
     "abort": {
-      "no_devices_found": "No Powerpal devices were found on Bluetooth. Make sure a Bluetooth proxy is in range and try again.",
       "already_configured": "This Powerpal is already configured."
     }
   },

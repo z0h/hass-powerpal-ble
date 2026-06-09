@@ -58,12 +58,30 @@ class PowerpalConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         if user_input is not None:
             address = user_input[CONF_ADDRESS]
+            if address == "__manual__":
+                return await self.async_step_manual()
             await self.async_set_unique_id(address)
             self._abort_if_unique_id_configured()
             self._address = address
             info = self._discovered.get(address)
             self._name = info.name if info else address
             return await self.async_step_settings()
+
+    async def async_step_manual(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Type-the-MAC fallback for users whose Powerpal isn't currently advertising."""
+        if user_input is not None:
+            address = user_input[CONF_ADDRESS].upper()
+            await self.async_set_unique_id(address)
+            self._abort_if_unique_id_configured()
+            self._address = address
+            self._name = address
+            return await self.async_step_settings()
+        return self.async_show_form(
+            step_id="manual",
+            data_schema=vol.Schema({vol.Required(CONF_ADDRESS): str}),
+        )
 
         # Build picker from any Powerpals currently in the bluetooth cache.
         current_ids = self._async_current_ids()
@@ -73,22 +91,23 @@ class PowerpalConfigFlow(ConfigFlow, domain=DOMAIN):
             if info.address not in current_ids
             and (info.name or "").lower().startswith("powerpal")
         }
-        if not self._discovered:
-            return self.async_abort(reason="no_devices_found")
 
-        return self.async_show_form(
-            step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_ADDRESS): vol.In(
-                        {
-                            addr: f"{info.name} ({addr})"
-                            for addr, info in self._discovered.items()
-                        }
-                    )
-                }
-            ),
-        )
+        # Powerpals advertise sparsely on battery, so the cache often misses
+        # them right after install. Offer manual-address entry alongside any
+        # discovered devices instead of aborting outright.
+        if self._discovered:
+            options = {
+                addr: f"{info.name} ({addr})"
+                for addr, info in self._discovered.items()
+            }
+            options["__manual__"] = "Enter address manually…"
+            schema = vol.Schema(
+                {vol.Required(CONF_ADDRESS, default=next(iter(self._discovered))): vol.In(options)}
+            )
+        else:
+            schema = vol.Schema({vol.Required(CONF_ADDRESS): str})
+
+        return self.async_show_form(step_id="user", data_schema=schema)
 
     # --- pairing code / pulses / interval ---------------------------------
     async def async_step_settings(

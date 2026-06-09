@@ -104,8 +104,14 @@ class PowerpalCoordinator:
                 )
         # Persist accumulators (debounced — Store.async_delay_save coalesces).
         # Skip writes while no measurements have arrived yet.
+        # Snapshot the dict NOW rather than letting Store call _build_snapshot
+        # at fire time — a reconnect cycle (teardown sets _client=None, then
+        # _connect_and_setup reassigns it) could otherwise land the 60-s-later
+        # fire on `_client is None` and persist a zero snapshot, clobbering
+        # the real totals.
         if state.total_pulses or state.daily_pulses:
-            self._store.async_delay_save(self._build_snapshot, _SAVE_DEBOUNCE_S)
+            snapshot = self._build_snapshot()
+            self._store.async_delay_save(lambda: snapshot, _SAVE_DEBOUNCE_S)
 
     @callback
     def _build_snapshot(self) -> dict:
