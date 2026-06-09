@@ -1,15 +1,12 @@
 {
   "domain": "powerpal_ble",
   "name": "Powerpal (BLE)",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "config_flow": true,
   "iot_class": "local_push",
   "integration_type": "device",
   "bluetooth": [
-    {
-      "local_name_prefix": "Powerpal",
-      "service_uuid": "59daabcd-12f4-25a6-7d4f-55961dce4205"
-    }
+    {"local_name_prefix": "Powerpal"}
   ],
   "dependencies": ["bluetooth"],
   "loggers": ["bleak", "bleak_retry_connector"],

@@ -31,6 +31,7 @@ encode_batch_size = _protocol.encode_batch_size
 encode_pairing_code = _protocol.encode_pairing_code
 kwh_from_pulses = _protocol.kwh_from_pulses
 parse_measurement = _protocol.parse_measurement
+restore_pulses_from_snapshot = _protocol.restore_pulses_from_snapshot
 
 
 class PairingCodeEncoding(unittest.TestCase):
@@ -127,6 +128,74 @@ class EnergyAccumulation(unittest.TestCase):
 
     def test_zero_pulses(self):
         self.assertEqual(kwh_from_pulses(0, 800.0), 0.0)
+
+
+class RestorePulsesFromSnapshot(unittest.TestCase):
+    """Migration + rescale paths for persisted accumulator state."""
+
+    def test_no_snapshot_yields_zeros(self):
+        self.assertEqual(restore_pulses_from_snapshot(None, 800), (0, 0, 0))
+        self.assertEqual(restore_pulses_from_snapshot({}, 800), (0, 0, 0))
+
+    def test_v0_7_native_pulses_at_same_calibration(self):
+        snap = {
+            "total_pulses": 80_000,
+            "daily_pulses": 100,
+            "day_key": 12345,
+            "calibration_ppkwh": 800.0,
+            "total_energy_kwh": 100.0,
+        }
+        self.assertEqual(restore_pulses_from_snapshot(snap, 800), (80_000, 100, 12345))
+
+    def test_pre_v0_7_kwh_only_migrates(self):
+        # Snapshot lacks total_pulses — back-compute from kWh at current rate.
+        snap = {
+            "total_energy_kwh": 100.0,
+            "daily_energy_kwh": 1.25,
+            "day_key": 12345,
+        }
+        total, daily, day = restore_pulses_from_snapshot(snap, 800)
+        self.assertEqual(total, 80_000)  # 100 kWh * 800 ppkwh
+        self.assertEqual(daily, 1000)   # 1.25 kWh * 800 ppkwh
+        self.assertEqual(day, 12345)
+
+    def test_ppkwh_change_rescales_to_preserve_kwh(self):
+        # User originally calibrated at 1000 ppkwh, accumulated 100 kWh
+        # (= 100_000 pulses). They change to 800 ppkwh. We must rescale to
+        # 80_000 pulses so that 80_000 / 800 = 100 kWh still.
+        snap = {
+            "total_pulses": 100_000,
+            "daily_pulses": 5_000,
+            "day_key": 12345,
+            "calibration_ppkwh": 1000.0,
+        }
+        total, daily, _ = restore_pulses_from_snapshot(snap, 800)
+        self.assertEqual(total, 80_000)
+        self.assertEqual(daily, 4_000)
+
+    def test_ppkwh_change_other_direction(self):
+        # 800 → 1000: pulses must scale UP to keep kWh constant
+        # 80_000 / 800 = 100 kWh; need 100_000 pulses at 1000 ppkwh.
+        snap = {
+            "total_pulses": 80_000,
+            "daily_pulses": 4_000,
+            "calibration_ppkwh": 800.0,
+        }
+        total, daily, _ = restore_pulses_from_snapshot(snap, 1000)
+        self.assertEqual(total, 100_000)
+        self.assertEqual(daily, 5_000)
+
+    def test_no_calibration_field_assumes_unchanged(self):
+        # Old snapshot without calibration_ppkwh → don't rescale, trust pulses.
+        snap = {"total_pulses": 5000, "daily_pulses": 100, "day_key": 1}
+        self.assertEqual(restore_pulses_from_snapshot(snap, 800), (5000, 100, 1))
+
+    def test_missing_daily_defaults_to_zero(self):
+        snap = {"total_pulses": 5000, "day_key": 1}
+        total, daily, day = restore_pulses_from_snapshot(snap, 800)
+        self.assertEqual(total, 5000)
+        self.assertEqual(daily, 0)
+        self.assertEqual(day, 1)
 
 
 if __name__ == "__main__":

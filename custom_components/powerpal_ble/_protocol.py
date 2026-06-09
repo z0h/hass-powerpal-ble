@@ -64,3 +64,45 @@ def average_power_watts(
 def kwh_from_pulses(pulses: int, pulses_per_kwh: float) -> float:
     """Energy in kWh accumulated by `pulses` pulses on a `pulses_per_kwh` meter."""
     return pulses / pulses_per_kwh
+
+
+def restore_pulses_from_snapshot(
+    snapshot: dict | None,
+    current_pulses_per_kwh: float,
+) -> tuple[int, int, int]:
+    """Decode a persisted accumulator snapshot into (total_pulses,
+    daily_pulses, day_key) at the current calibration.
+
+    Handles:
+      - missing snapshot (fresh install) → (0, 0, 0)
+      - pre-v0.7 snapshots with only kWh fields → back-compute pulses at the
+        current rate (lossless if rate unchanged since save)
+      - calibration_ppkwh-different-from-current → rescale pulses to keep
+        total kWh continuous, so a `pulses_per_kwh` change via the options
+        flow doesn't cause TOTAL_INCREASING to step
+    """
+    if not snapshot:
+        return (0, 0, 0)
+
+    total_pulses = snapshot.get("total_pulses")
+    daily_pulses = snapshot.get("daily_pulses")
+
+    if total_pulses is None and "total_energy_kwh" in snapshot:
+        total_pulses = int(round(
+            float(snapshot["total_energy_kwh"]) * current_pulses_per_kwh
+        ))
+        daily_pulses = int(round(
+            float(snapshot.get("daily_energy_kwh", 0.0)) * current_pulses_per_kwh
+        ))
+
+    total_pulses = int(total_pulses or 0)
+    daily_pulses = int(daily_pulses or 0)
+
+    calibration = float(snapshot.get("calibration_ppkwh", current_pulses_per_kwh))
+    if calibration != current_pulses_per_kwh and total_pulses:
+        ratio = current_pulses_per_kwh / calibration
+        total_pulses = int(round(total_pulses * ratio))
+        daily_pulses = int(round(daily_pulses * ratio))
+
+    day_key = int(snapshot.get("day_key", 0))
+    return (total_pulses, daily_pulses, day_key)

@@ -17,6 +17,7 @@ Byte-level operations live in `_protocol.py` so they can be unit-tested.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -39,8 +40,6 @@ from .const import (
     PAIRING_CODE_UUID,
     READING_BATCH_SIZE_UUID,
 )
-
-import datetime as dt
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -192,6 +191,13 @@ class PowerpalClient:
         await self._client.start_notify(MEASUREMENT_UUID, self._on_measurement_notify)
         _LOGGER.info("Subscribed to measurements on %s", self._ble_device.address)
 
+        # Mark connected *before* the optional battery setup so that any
+        # battery notification arriving during init publishes against the
+        # correct state.connected=True (instead of briefly flapping the
+        # sensor unavailable→available).
+        self._authenticated = True
+        self.state.connected = True
+
         # 4. Battery is optional but cheap.
         try:
             await self._client.start_notify(BATTERY_LEVEL_UUID, self._on_battery_notify)
@@ -201,8 +207,6 @@ class PowerpalClient:
         except BleakError as err:
             _LOGGER.debug("Battery characteristic unavailable: %s", err)
 
-        self._authenticated = True
-        self.state.connected = True
         self._notify_listeners()
 
     def _on_disconnect(self, _client) -> None:

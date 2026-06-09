@@ -18,16 +18,19 @@ from homeassistant.components.bluetooth import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.storage import Store
 
+from ._protocol import restore_pulses_from_snapshot
 from .const import DOMAIN
 from .powerpal_client import PowerpalClient, PowerpalState
 
 _LOGGER = logging.getLogger(__name__)
 
-# Bumped if the persisted-state schema changes.
+# Bumped if the persisted-state schema changes meaningfully.
 _STORAGE_VERSION = 1
-# Save at most once every 5 minutes (covers a 1-minute notification cadence
-# without thrashing disk).
-_SAVE_DEBOUNCE_S = 300
+# Save at most once a minute. Notifications arrive at most once per
+# `notification_interval` (default 1 min); debouncing this short still
+# coalesces bursts on reconnect but limits the data lost to <1 min on a
+# hard crash that bypasses HA's clean-shutdown flush.
+_SAVE_DEBOUNCE_S = 60
 
 
 class PowerpalCoordinator:
@@ -90,24 +93,36 @@ class PowerpalCoordinator:
 
     @callback
     def _async_handle_state(self, state: PowerpalState) -> None:
+        # Listener exceptions must not break iteration or skip persistence —
+        # log and continue.
         for listener in list(self._listeners):
-            listener(state)
+            try:
+                listener(state)
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception(
+                    "Powerpal listener raised; continuing with remaining listeners"
+                )
         # Persist accumulators (debounced — Store.async_delay_save coalesces).
         # Skip writes while no measurements have arrived yet.
-        if state.total_energy_kwh or state.daily_energy_kwh:
+        if state.total_pulses or state.daily_pulses:
             self._store.async_delay_save(self._build_snapshot, _SAVE_DEBOUNCE_S)
 
     @callback
     def _build_snapshot(self) -> dict:
-        """Persist kWh values as source of truth (survives pulses_per_kwh changes)
-        plus pulse counts for diagnostic value and day_key for daily rollover."""
+        """Pulses are the canonical lossless integer representation. kWh
+        values are stored alongside for human readability only. The
+        `calibration_ppkwh` records the pulses-per-kWh value at save time so
+        a later change via the options flow can rescale the pulse count and
+        preserve kWh continuity (otherwise state_class=TOTAL_INCREASING would
+        see a step change)."""
         s = self._client.state if self._client else PowerpalState()
         return {
-            "total_energy_kwh": s.total_energy_kwh or 0.0,
-            "daily_energy_kwh": s.daily_energy_kwh or 0.0,
             "total_pulses": s.total_pulses,
             "daily_pulses": s.daily_pulses,
             "day_key": s.day_key,
+            "calibration_ppkwh": self._pulses_per_kwh,
+            "total_energy_kwh": s.total_energy_kwh or 0.0,  # informational
+            "daily_energy_kwh": s.daily_energy_kwh or 0.0,  # informational
         }
 
     async def async_start(self) -> bool:
@@ -135,7 +150,6 @@ class PowerpalCoordinator:
         @callback
         def _unavailable_cb(_info) -> None:
             _LOGGER.debug("Powerpal %s marked unavailable", self.address)
-            self._available = False
             # Push a synthetic state with connected=False to flip sensors.
             if self._client is not None:
                 self._client.state.connected = False
@@ -169,23 +183,21 @@ class PowerpalCoordinator:
                 notification_interval=self._notification_interval,
                 on_update=self._async_handle_state,
             )
-            # Seed accumulators from persisted state (consumed once). kWh
-            # values are the source of truth so that a change to
-            # pulses_per_kwh (via options flow) preserves the cumulative
-            # totals — we just back-compute pulses from kWh at the new rate.
+            # Seed accumulators from persisted state (consumed once).
+            #
+            # Pulses are canonical. If the pulses_per_kwh was different at
+            # save time (user changed the calibration via the options flow),
+            # rescale to preserve total_kwh = total_pulses / pulses_per_kwh
+            # across the change. Otherwise sensors with TOTAL_INCREASING
+            # would emit a step delta on reload.
+            #
+            # Backwards-compat: pre-v0.7 snapshots stored only kWh. If we see
+            # a snapshot without `total_pulses` but with `total_energy_kwh`,
+            # back-compute pulses from kWh at the current rate (the
+            # calibration at that time wasn't recorded, so this assumes the
+            # rate hasn't changed — acceptable approximation for migration).
             if self._restored_state is not None:
-                s = self._client.state
-                total_kwh = float(self._restored_state.get("total_energy_kwh", 0.0))
-                daily_kwh = float(self._restored_state.get("daily_energy_kwh", 0.0))
-                s.day_key = int(self._restored_state.get("day_key", 0))
-                s.total_pulses = int(round(total_kwh * self._pulses_per_kwh))
-                s.daily_pulses = int(round(daily_kwh * self._pulses_per_kwh))
-                s.total_energy_kwh = total_kwh if total_kwh else None
-                s.daily_energy_kwh = daily_kwh if daily_kwh else None
-                _LOGGER.debug(
-                    "Restored accumulators: total=%.3fkWh daily=%.3fkWh day_key=%d",
-                    total_kwh, daily_kwh, s.day_key,
-                )
+                self._seed_state_from_restored()
                 self._restored_state = None
         else:
             self._client.update_ble_device(ble_device)
@@ -199,6 +211,27 @@ class PowerpalCoordinator:
             )
             return False
 
+    def _seed_state_from_restored(self) -> None:
+        """Apply persisted accumulators to the freshly-constructed client.
+        Decoding (migration + rescale) lives in `_protocol.restore_pulses_from_snapshot`."""
+        assert self._client is not None
+        total_pulses, daily_pulses, day_key = restore_pulses_from_snapshot(
+            self._restored_state, self._pulses_per_kwh
+        )
+        s = self._client.state
+        s.total_pulses = total_pulses
+        s.daily_pulses = daily_pulses
+        s.day_key = day_key
+        if total_pulses:
+            s.total_energy_kwh = total_pulses / self._pulses_per_kwh
+        if daily_pulses:
+            s.daily_energy_kwh = daily_pulses / self._pulses_per_kwh
+        _LOGGER.debug(
+            "Restored: total_pulses=%d daily_pulses=%d day_key=%d total=%.3fkWh",
+            s.total_pulses, s.daily_pulses, s.day_key,
+            s.total_energy_kwh or 0.0,
+        )
+
     async def async_stop(self) -> None:
         if self._unregister_bt_cb:
             self._unregister_bt_cb()
@@ -209,8 +242,8 @@ class PowerpalCoordinator:
         # Flush any pending debounced save so the latest accumulators land
         # on disk before we drop the client.
         if self._client is not None and (
-            self._client.state.total_energy_kwh
-            or self._client.state.daily_energy_kwh
+            self._client.state.total_pulses
+            or self._client.state.daily_pulses
         ):
             await self._store.async_save(self._build_snapshot())
         if self._client is not None:
