@@ -7,6 +7,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryNotReady
 
 from .const import (
     CONF_NOTIFICATION_INTERVAL,
@@ -35,7 +36,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: PowerpalConfigEntry) -> 
     # connect fails, ConfigEntryNotReady asks HA to retry later.
     if not await coordinator.async_start():
         await coordinator.async_stop()
-        from homeassistant.exceptions import ConfigEntryNotReady
         raise ConfigEntryNotReady(
             f"Initial connection to Powerpal {coordinator.address} failed"
         )

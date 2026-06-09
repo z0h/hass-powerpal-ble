@@ -13,6 +13,7 @@ from homeassistant.components.bluetooth import (
     async_address_present,
     async_ble_device_from_address,
     async_register_callback,
+    async_track_unavailable,
 )
 from homeassistant.core import HomeAssistant, callback
 
@@ -50,7 +51,9 @@ class PowerpalCoordinator:
 
         self._client: PowerpalClient | None = None
         self._unregister_bt_cb: Callable[[], None] | None = None
+        self._unregister_unavailable: Callable[[], None] | None = None
         self._listeners: list[Callable[[PowerpalState], None]] = []
+        self._available: bool = False
 
     @property
     def state(self) -> PowerpalState:
@@ -89,6 +92,21 @@ class PowerpalCoordinator:
             _advertisement_cb,
             BluetoothCallbackMatcher(address=self.address),
             BluetoothScanningMode.ACTIVE,
+        )
+
+        # Track unavailability — when HA hasn't heard any advertisement from
+        # this address for the unavailability timeout, sensors go unavailable.
+        @callback
+        def _unavailable_cb(_info) -> None:
+            _LOGGER.debug("Powerpal %s marked unavailable", self.address)
+            self._available = False
+            # Push a synthetic state with connected=False to flip sensors.
+            if self._client is not None:
+                self._client.state.connected = False
+            self._async_handle_state(self.state)
+
+        self._unregister_unavailable = async_track_unavailable(
+            self.hass, _unavailable_cb, self.address
         )
 
         # If the device is already in the cache, kick a connection immediately.
@@ -131,6 +149,9 @@ class PowerpalCoordinator:
         if self._unregister_bt_cb:
             self._unregister_bt_cb()
             self._unregister_bt_cb = None
+        if self._unregister_unavailable:
+            self._unregister_unavailable()
+            self._unregister_unavailable = None
         if self._client is not None:
             await self._client.stop()
             self._client = None
