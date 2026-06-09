@@ -1,0 +1,16 @@
+{
+  "domain": "powerpal_ble",
+  "name": "Powerpal (BLE)",
+  "version": "0.1.0",
+  "config_flow": true,
+  "iot_class": "local_push",
+  "integration_type": "device",
+  "bluetooth": [
+    {"local_name_prefix": "Powerpal"}
+  ],
+  "dependencies": ["bluetooth"],
+  "loggers": ["bleak", "bleak_retry_connector"],
+  "codeowners": ["@z0h"],
+  "documentation": "https://github.com/z0h/hass-powerpal-ble",
+  "issue_tracker": "https://github.com/z0h/hass-powerpal-ble/issues"
+}

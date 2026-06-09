@@ -1,0 +1,33 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Pick a discovered Powerpal device.",
+        "data": {
+          "address": "Device"
+        }
+      },
+      "settings": {
+        "description": "Configure Powerpal {name}. The pairing code is in the Powerpal phone app under device settings (an 8-digit decimal number).",
+        "data": {
+          "pairing_code": "Pairing code",
+          "pulses_per_kwh": "Pulses per kWh",
+          "notification_interval": "Notification interval (minutes)"
+        }
+      }
+    },
+    "abort": {
+      "no_devices_found": "No Powerpal devices were found on Bluetooth. Make sure a Bluetooth proxy is in range and try again.",
+      "already_configured": "This Powerpal is already configured."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "power": {"name": "Power"},
+      "daily_energy": {"name": "Daily Energy"},
+      "total_energy": {"name": "Total Energy"},
+      "battery": {"name": "Battery"}
+    }
+  }
+}
