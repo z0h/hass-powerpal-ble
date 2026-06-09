@@ -70,7 +70,7 @@ class PowerpalConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_manual(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Type-the-MAC fallback for users whose Powerpal isn't currently advertising."""
+        """Type-the-MAC fallback if no Powerpal is currently advertising."""
         if user_input is not None:
             address = user_input[CONF_ADDRESS].upper()
             await self.async_set_unique_id(address)
@@ -101,8 +101,9 @@ class PowerpalConfigFlow(ConfigFlow, domain=DOMAIN):
                 for addr, info in self._discovered.items()
             }
             options["__manual__"] = "Enter address manually…"
+            default = next(iter(self._discovered))
             schema = vol.Schema(
-                {vol.Required(CONF_ADDRESS, default=next(iter(self._discovered))): vol.In(options)}
+                {vol.Required(CONF_ADDRESS, default=default): vol.In(options)}
             )
         else:
             schema = vol.Schema({vol.Required(CONF_ADDRESS): str})
