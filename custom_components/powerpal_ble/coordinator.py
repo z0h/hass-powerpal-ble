@@ -93,14 +93,18 @@ class PowerpalCoordinator:
         for listener in list(self._listeners):
             listener(state)
         # Persist accumulators (debounced — Store.async_delay_save coalesces).
-        # Avoid writing while no measurements have arrived yet (initial state).
-        if state.total_pulses or state.daily_pulses:
+        # Skip writes while no measurements have arrived yet.
+        if state.total_energy_kwh or state.daily_energy_kwh:
             self._store.async_delay_save(self._build_snapshot, _SAVE_DEBOUNCE_S)
 
     @callback
     def _build_snapshot(self) -> dict:
+        """Persist kWh values as source of truth (survives pulses_per_kwh changes)
+        plus pulse counts for diagnostic value and day_key for daily rollover."""
         s = self._client.state if self._client else PowerpalState()
         return {
+            "total_energy_kwh": s.total_energy_kwh or 0.0,
+            "daily_energy_kwh": s.daily_energy_kwh or 0.0,
             "total_pulses": s.total_pulses,
             "daily_pulses": s.daily_pulses,
             "day_key": s.day_key,
@@ -165,19 +169,22 @@ class PowerpalCoordinator:
                 notification_interval=self._notification_interval,
                 on_update=self._async_handle_state,
             )
-            # Seed accumulators from persisted state (consumed once).
+            # Seed accumulators from persisted state (consumed once). kWh
+            # values are the source of truth so that a change to
+            # pulses_per_kwh (via options flow) preserves the cumulative
+            # totals — we just back-compute pulses from kWh at the new rate.
             if self._restored_state is not None:
                 s = self._client.state
-                s.total_pulses = int(self._restored_state.get("total_pulses", 0))
-                s.daily_pulses = int(self._restored_state.get("daily_pulses", 0))
+                total_kwh = float(self._restored_state.get("total_energy_kwh", 0.0))
+                daily_kwh = float(self._restored_state.get("daily_energy_kwh", 0.0))
                 s.day_key = int(self._restored_state.get("day_key", 0))
-                if s.total_pulses:
-                    s.total_energy_kwh = s.total_pulses / self._pulses_per_kwh
-                if s.daily_pulses:
-                    s.daily_energy_kwh = s.daily_pulses / self._pulses_per_kwh
+                s.total_pulses = int(round(total_kwh * self._pulses_per_kwh))
+                s.daily_pulses = int(round(daily_kwh * self._pulses_per_kwh))
+                s.total_energy_kwh = total_kwh if total_kwh else None
+                s.daily_energy_kwh = daily_kwh if daily_kwh else None
                 _LOGGER.debug(
-                    "Restored accumulators: total_pulses=%d daily_pulses=%d day_key=%d",
-                    s.total_pulses, s.daily_pulses, s.day_key,
+                    "Restored accumulators: total=%.3fkWh daily=%.3fkWh day_key=%d",
+                    total_kwh, daily_kwh, s.day_key,
                 )
                 self._restored_state = None
         else:
@@ -202,7 +209,8 @@ class PowerpalCoordinator:
         # Flush any pending debounced save so the latest accumulators land
         # on disk before we drop the client.
         if self._client is not None and (
-            self._client.state.total_pulses or self._client.state.daily_pulses
+            self._client.state.total_energy_kwh
+            or self._client.state.daily_energy_kwh
         ):
             await self._store.async_save(self._build_snapshot())
         if self._client is not None:

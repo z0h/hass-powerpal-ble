@@ -1,0 +1,44 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  protocol-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Run protocol unit tests
+        run: python -m unittest tests.test_protocol -v
+
+  syntax-and-json:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Compile all Python files
+        run: python -m compileall -q custom_components tests
+      - name: Validate JSON files
+        run: |
+          python -c "import json; json.load(open('hacs.json'))"
+          python -c "import json; json.load(open('custom_components/powerpal_ble/manifest.json'))"
+          python -c "import json; json.load(open('custom_components/powerpal_ble/strings.json'))"
+
+  hacs-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: HACS validation
+        uses: hacs/action@main
+        with:
+          category: integration
