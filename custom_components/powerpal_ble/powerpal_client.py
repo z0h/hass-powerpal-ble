@@ -89,6 +89,11 @@ class PowerpalClient:
         self._authenticated = False
         # Bleak notification callbacks: marshal to the loop captured at start().
         self._loop: asyncio.AbstractEventLoop | None = None
+        # Watchdog: a wrong pairing code is a silent failure (no GATT error,
+        # no notifications). We arm a timer at handshake completion; if no
+        # measurement arrives within `notification_interval*2 + 30s`, we log
+        # a warning to give the user a hint.
+        self._auth_watchdog: asyncio.TimerHandle | None = None
 
     @property
     def address(self) -> str:
@@ -142,6 +147,7 @@ class PowerpalClient:
         """
         was_connected = self.state.connected
         self._authenticated = False
+        self._cancel_auth_watchdog()
         if self._client is not None:
             try:
                 if self._client.is_connected:
@@ -196,6 +202,7 @@ class PowerpalClient:
         # sensor unavailable→available).
         self._authenticated = True
         self.state.connected = True
+        self._arm_auth_watchdog()
 
         # 4. Battery is optional but cheap.
         try:
@@ -217,9 +224,40 @@ class PowerpalClient:
 
     def _handle_disconnect(self) -> None:
         self._authenticated = False
+        self._cancel_auth_watchdog()
         if self.state.connected:
             self.state.connected = False
             self._notify_listeners()
+
+    def _arm_auth_watchdog(self) -> None:
+        """Arms a timer for `notification_interval*2 + 30s`. If we haven't
+        received a measurement by then, the pairing code is almost certainly
+        wrong (the device accepts the GATT write either way; it just won't
+        push notifications)."""
+        self._cancel_auth_watchdog()
+        loop = self._loop
+        if loop is None:
+            return
+        delay = self._notification_interval * 2 * 60 + 30
+        self._auth_watchdog = loop.call_later(delay, self._on_auth_watchdog_timeout)
+
+    def _cancel_auth_watchdog(self) -> None:
+        if self._auth_watchdog is not None:
+            self._auth_watchdog.cancel()
+            self._auth_watchdog = None
+
+    def _on_auth_watchdog_timeout(self) -> None:
+        self._auth_watchdog = None
+        if self.state.last_measurement_at is None:
+            _LOGGER.warning(
+                "Powerpal %s: connected and authenticated but received no "
+                "measurements after %d minutes — the pairing code may be "
+                "wrong (Powerpal does not return a GATT error for an "
+                "incorrect code; it just stops sending notifications). "
+                "Double-check the code in your Powerpal app.",
+                self._ble_device.address,
+                self._notification_interval * 2,
+            )
 
     # -------- Notification handlers (may be off-loop on some backends) --------
 
