@@ -105,9 +105,39 @@ bleak runtime needed):
 python3 tests/test_protocol.py
 ```
 
+31 tests covering pairing-code encoding, batch-size buffer, measurement
+parsing, power calculation across batch sizes, energy accumulation, and
+the snapshot restore path (v0.5→v0.7 migration + ppkwh-change rescaling +
+corrupted-snapshot guards).
+
+`ruff check` and `mypy --strict` (on the pure-Python `_protocol.py`)
+should both run clean.
+
 End-to-end integration testing requires installing the integration in HA
 against a live Powerpal. There is no test harness for the BLE state machine
-itself.
+itself — review the connection state machine in `powerpal_client.py`
+directly if you suspect a bug there.
+
+## Troubleshooting
+
+**Sensors show "unavailable" forever after install.**
+The device is either out of range of every HA bluetooth scanner or it's
+not advertising right now (Powerpal is sparse on battery). Wait a couple
+of minutes for the next advertisement.
+
+**Sensors come available, then never update.**
+Pairing code is probably wrong. The Powerpal accepts any code at GATT
+level and just doesn't push notifications for an incorrect one. Watch
+for a `Powerpal ... received no measurements after N minutes` line in
+the HA log (emitted ~2x the notification interval after first connect).
+
+**`Total Energy` resets to zero on HA restart.**
+Shouldn't happen as of v0.5 (pulses are persisted via HA's `Store`). If
+it does, dump diagnostics and file an issue.
+
+**`Total Energy` decreases when I change `pulses_per_kwh`.**
+Shouldn't happen as of v0.7 (snapshot includes `calibration_ppkwh` and
+pulses are rescaled to preserve kWh). If it does, dump diagnostics.
 
 ## License
 
