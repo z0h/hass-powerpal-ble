@@ -7,8 +7,14 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
 from homeassistant.const import CONF_ADDRESS
+from homeassistant.core import callback
 
 from .const import (
     CONF_NOTIFICATION_INTERVAL,
@@ -29,6 +35,11 @@ class PowerpalConfigFlow(ConfigFlow, domain=DOMAIN):
         self._discovered: dict[str, BluetoothServiceInfoBleak] = {}
         self._address: str | None = None
         self._name: str | None = None
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(entry: ConfigEntry) -> OptionsFlow:
+        return PowerpalOptionsFlow(entry)
 
     # --- entered when HA finds an advertised Powerpal ---------------------
     async def async_step_bluetooth(
@@ -83,7 +94,6 @@ class PowerpalConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_settings(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        errors: dict[str, str] = {}
         if user_input is not None:
             return self.async_create_entry(
                 title=self._name or self._address,
@@ -112,5 +122,46 @@ class PowerpalConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
             ),
             description_placeholders={"name": self._name or self._address or ""},
-            errors=errors,
+        )
+
+
+class PowerpalOptionsFlow(OptionsFlow):
+    """Lets the user re-tune pulses/kWh and notification interval after setup
+    without removing+re-adding the integration. Pairing code changes require
+    a full re-add (they're paired with a specific device)."""
+
+    def __init__(self, entry: ConfigEntry) -> None:
+        self._entry = entry
+
+    async def async_step_init(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        current = {
+            CONF_PULSES_PER_KWH: self._entry.data.get(
+                CONF_PULSES_PER_KWH, DEFAULT_PULSES_PER_KWH
+            ),
+            CONF_NOTIFICATION_INTERVAL: self._entry.data.get(
+                CONF_NOTIFICATION_INTERVAL, DEFAULT_NOTIFICATION_INTERVAL
+            ),
+        }
+        # Honor any values previously set via the options flow.
+        current.update(self._entry.options)
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_PULSES_PER_KWH,
+                        default=current[CONF_PULSES_PER_KWH],
+                    ): vol.All(vol.Coerce(float), vol.Range(min=1)),
+                    vol.Required(
+                        CONF_NOTIFICATION_INTERVAL,
+                        default=current[CONF_NOTIFICATION_INTERVAL],
+                    ): vol.All(vol.Coerce(int), vol.Range(min=1, max=60)),
+                }
+            ),
         )

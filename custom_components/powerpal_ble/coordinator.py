@@ -16,10 +16,18 @@ from homeassistant.components.bluetooth import (
     async_track_unavailable,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.storage import Store
 
+from .const import DOMAIN
 from .powerpal_client import PowerpalClient, PowerpalState
 
 _LOGGER = logging.getLogger(__name__)
+
+# Bumped if the persisted-state schema changes.
+_STORAGE_VERSION = 1
+# Save at most once every 5 minutes (covers a 1-minute notification cadence
+# without thrashing disk).
+_SAVE_DEBOUNCE_S = 300
 
 
 class PowerpalCoordinator:
@@ -53,7 +61,15 @@ class PowerpalCoordinator:
         self._unregister_bt_cb: Callable[[], None] | None = None
         self._unregister_unavailable: Callable[[], None] | None = None
         self._listeners: list[Callable[[PowerpalState], None]] = []
-        self._available: bool = False
+        # Persisted accumulators so total/daily energy survive HA restarts —
+        # without this, sensors with state_class=TOTAL_INCREASING reset to 0
+        # on every restart and break the Energy Dashboard.
+        self._store: Store = Store(
+            hass,
+            _STORAGE_VERSION,
+            f"{DOMAIN}.energy.{address}",
+        )
+        self._restored_state: dict | None = None
 
     @property
     def state(self) -> PowerpalState:
@@ -76,10 +92,26 @@ class PowerpalCoordinator:
     def _async_handle_state(self, state: PowerpalState) -> None:
         for listener in list(self._listeners):
             listener(state)
+        # Persist accumulators (debounced — Store.async_delay_save coalesces).
+        # Avoid writing while no measurements have arrived yet (initial state).
+        if state.total_pulses or state.daily_pulses:
+            self._store.async_delay_save(self._build_snapshot, _SAVE_DEBOUNCE_S)
+
+    @callback
+    def _build_snapshot(self) -> dict:
+        s = self._client.state if self._client else PowerpalState()
+        return {
+            "total_pulses": s.total_pulses,
+            "daily_pulses": s.daily_pulses,
+            "day_key": s.day_key,
+        }
 
     async def async_start(self) -> bool:
         """Begin watching for the device. Returns True if an initial connection
         was successfully started (used by setup to decide ConfigEntryNotReady)."""
+        # Load persisted accumulators *before* any client is constructed so the
+        # first measurement after restart adds onto the saved totals.
+        self._restored_state = await self._store.async_load()
 
         @callback
         def _advertisement_cb(
@@ -133,6 +165,21 @@ class PowerpalCoordinator:
                 notification_interval=self._notification_interval,
                 on_update=self._async_handle_state,
             )
+            # Seed accumulators from persisted state (consumed once).
+            if self._restored_state is not None:
+                s = self._client.state
+                s.total_pulses = int(self._restored_state.get("total_pulses", 0))
+                s.daily_pulses = int(self._restored_state.get("daily_pulses", 0))
+                s.day_key = int(self._restored_state.get("day_key", 0))
+                if s.total_pulses:
+                    s.total_energy_kwh = s.total_pulses / self._pulses_per_kwh
+                if s.daily_pulses:
+                    s.daily_energy_kwh = s.daily_pulses / self._pulses_per_kwh
+                _LOGGER.debug(
+                    "Restored accumulators: total_pulses=%d daily_pulses=%d day_key=%d",
+                    s.total_pulses, s.daily_pulses, s.day_key,
+                )
+                self._restored_state = None
         else:
             self._client.update_ble_device(ble_device)
 
@@ -152,6 +199,12 @@ class PowerpalCoordinator:
         if self._unregister_unavailable:
             self._unregister_unavailable()
             self._unregister_unavailable = None
+        # Flush any pending debounced save so the latest accumulators land
+        # on disk before we drop the client.
+        if self._client is not None and (
+            self._client.state.total_pulses or self._client.state.daily_pulses
+        ):
+            await self._store.async_save(self._build_snapshot())
         if self._client is not None:
             await self._client.stop()
             self._client = None
