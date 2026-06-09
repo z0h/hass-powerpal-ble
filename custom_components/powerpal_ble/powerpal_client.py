@@ -210,8 +210,13 @@ class PowerpalClient:
         self._notify_listeners()
 
     def _on_disconnect(self, _client) -> None:
-        """Bleak fires this on the loop (not a bleak worker thread)."""
+        """Bleak fires this; backend threading is not guaranteed across
+        platforms, so marshal to the captured event loop before mutating
+        state or notifying listeners."""
         _LOGGER.debug("Powerpal disconnected: %s", self._ble_device.address)
+        self._dispatch_on_loop(self._handle_disconnect)
+
+    def _handle_disconnect(self) -> None:
         self._authenticated = False
         if self.state.connected:
             self.state.connected = False
@@ -229,7 +234,11 @@ class PowerpalClient:
         loop = self._loop
         if loop is None or loop.is_closed():
             return
-        loop.call_soon_threadsafe(fn, *args)
+        try:
+            loop.call_soon_threadsafe(fn, *args)
+        except RuntimeError:
+            # Loop closed between the is_closed() check and call. Discard.
+            pass
 
     # -------- Packet handling (always on the loop thread) --------
 
@@ -238,6 +247,12 @@ class PowerpalClient:
             _LOGGER.debug("Short measurement packet: %s", data.hex())
             return
         try:
+            # Receiving a measurement IS proof of an active GATT link, so
+            # if the HA-bluetooth unavailable watchdog previously flipped us
+            # to disconnected (advertisements stopped but GATT held up),
+            # flip it back.
+            if not self.state.connected:
+                self.state.connected = True
             unix_time, pulses = parse_measurement(data)
             ts_local = dt_util.as_local(dt_util.utc_from_timestamp(unix_time))
 

@@ -179,6 +179,7 @@ class RestorePulsesFromSnapshot(unittest.TestCase):
         snap = {
             "total_pulses": 80_000,
             "daily_pulses": 4_000,
+            "day_key": 12345,
             "calibration_ppkwh": 800.0,
         }
         total, daily, _ = restore_pulses_from_snapshot(snap, 1000)
@@ -196,6 +197,41 @@ class RestorePulsesFromSnapshot(unittest.TestCase):
         self.assertEqual(total, 5000)
         self.assertEqual(daily, 0)
         self.assertEqual(day, 1)
+
+    def test_missing_day_key_drops_daily_pulses(self):
+        # Without day_key we can't know which calendar day the daily count
+        # belongs to. Safer to drop it than leak across an unknown boundary.
+        snap = {"total_pulses": 5000, "daily_pulses": 200}
+        total, daily, day = restore_pulses_from_snapshot(snap, 800)
+        self.assertEqual(total, 5000)
+        self.assertEqual(daily, 0)
+        self.assertEqual(day, 0)
+
+    def test_corrupted_zero_calibration_doesnt_divide(self):
+        # A snapshot with calibration_ppkwh=0 would div-by-zero in the
+        # rescale path. Guard returns pulses unchanged.
+        snap = {
+            "total_pulses": 5000,
+            "daily_pulses": 100,
+            "day_key": 1,
+            "calibration_ppkwh": 0.0,
+        }
+        total, daily, day = restore_pulses_from_snapshot(snap, 800)
+        self.assertEqual(total, 5000)
+        self.assertEqual(daily, 100)
+        self.assertEqual(day, 1)
+
+    def test_corrupted_string_calibration_falls_back(self):
+        snap = {
+            "total_pulses": 5000,
+            "daily_pulses": 100,
+            "day_key": 1,
+            "calibration_ppkwh": "bogus",
+        }
+        # Should treat calibration as current and not rescale.
+        total, daily, day = restore_pulses_from_snapshot(snap, 800)
+        self.assertEqual(total, 5000)
+        self.assertEqual(daily, 100)
 
 
 if __name__ == "__main__":

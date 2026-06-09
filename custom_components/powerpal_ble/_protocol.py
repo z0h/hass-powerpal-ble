@@ -97,12 +97,25 @@ def restore_pulses_from_snapshot(
 
     total_pulses = int(total_pulses or 0)
     daily_pulses = int(daily_pulses or 0)
+    day_key = int(snapshot.get("day_key", 0))
 
-    calibration = float(snapshot.get("calibration_ppkwh", current_pulses_per_kwh))
-    if calibration != current_pulses_per_kwh and total_pulses:
+    # If day_key wasn't persisted but daily was, we can't trust the daily
+    # value (no way to know which calendar day it belongs to). Drop it
+    # rather than have it leak across an unknown day boundary.
+    if day_key == 0:
+        daily_pulses = 0
+
+    calibration = snapshot.get("calibration_ppkwh", current_pulses_per_kwh)
+    try:
+        calibration = float(calibration)
+    except (TypeError, ValueError):
+        calibration = current_pulses_per_kwh
+    # Guard against corrupted snapshots (zero/NaN/inf would divide badly).
+    if calibration > 0 and current_pulses_per_kwh > 0 and (
+        calibration != current_pulses_per_kwh and total_pulses
+    ):
         ratio = current_pulses_per_kwh / calibration
         total_pulses = int(round(total_pulses * ratio))
         daily_pulses = int(round(daily_pulses * ratio))
 
-    day_key = int(snapshot.get("day_key", 0))
     return (total_pulses, daily_pulses, day_key)

@@ -19,7 +19,19 @@ async def async_get_config_entry_diagnostics(
     hass: HomeAssistant,
     entry: PowerpalConfigEntry,
 ) -> dict[str, Any]:
-    coordinator = entry.runtime_data
+    coordinator = getattr(entry, "runtime_data", None)
+    if coordinator is None:
+        # Setup never completed (e.g. ConfigEntryNotReady is currently
+        # blocking us). Return what we know without crashing.
+        return {
+            "entry": {
+                "data": async_redact_data(dict(entry.data), REDACT),
+                "options": dict(entry.options),
+                "version": entry.version,
+                "state": str(entry.state),
+            },
+            "note": "Coordinator not yet initialised — entry setup is incomplete.",
+        }
     state = coordinator.state
     return {
         "entry": {
