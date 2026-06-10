@@ -37,13 +37,5 @@
         }
       }
     }
-  },
-  "entity": {
-    "sensor": {
-      "power": {"name": "Power"},
-      "daily_energy": {"name": "Daily Energy"},
-      "total_energy": {"name": "Total Energy"},
-      "battery": {"name": "Battery"}
-    }
   }
 }

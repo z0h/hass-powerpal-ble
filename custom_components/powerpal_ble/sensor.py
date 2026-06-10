@@ -33,11 +33,15 @@ class PowerpalSensorDescription(SensorEntityDescription):
     value_fn: Callable[[PowerpalState], float | int | None]
 
 
-# `translation_key` populates `name` from strings.json — don't also set `name`.
+# Explicit `name` rather than `translation_key`: without a translations/<lang>.json
+# file the key doesn't resolve at runtime and both energy sensors fall back to the
+# ENERGY device-class default name "Energy" — colliding into `_energy` and
+# `_energy_2`. Explicit names are also what HA uses to slugify the entity_id when
+# `_attr_has_entity_name = True`, so each sensor gets a distinct, readable id.
 SENSORS: tuple[PowerpalSensorDescription, ...] = (
     PowerpalSensorDescription(
         key="power",
-        translation_key="power",
+        name="Power",
         native_unit_of_measurement=UnitOfPower.WATT,
         device_class=SensorDeviceClass.POWER,
         state_class=SensorStateClass.MEASUREMENT,
@@ -46,7 +50,7 @@ SENSORS: tuple[PowerpalSensorDescription, ...] = (
     ),
     PowerpalSensorDescription(
         key="daily_energy",
-        translation_key="daily_energy",
+        name="Daily energy",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -55,7 +59,7 @@ SENSORS: tuple[PowerpalSensorDescription, ...] = (
     ),
     PowerpalSensorDescription(
         key="total_energy",
-        translation_key="total_energy",
+        name="Total energy",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL_INCREASING,
@@ -64,7 +68,7 @@ SENSORS: tuple[PowerpalSensorDescription, ...] = (
     ),
     PowerpalSensorDescription(
         key="battery",
-        translation_key="battery",
+        name="Battery",
         native_unit_of_measurement=PERCENTAGE,
         device_class=SensorDeviceClass.BATTERY,
         state_class=SensorStateClass.MEASUREMENT,
