@@ -131,6 +131,17 @@ level and just doesn't push notifications for an incorrect one. Watch
 for a `Powerpal ... received no measurements after N minutes` line in
 the HA log (emitted ~2x the notification interval after first connect).
 
+**Connect succeeds but pairing-code write fails (or sensors flicker
+connected → disconnected in a loop).**
+The Powerpal requires BLE-level bonding before it accepts the
+application-level pairing code. Bleak / HA's bluetooth integration
+normally handle bonding transparently when connecting through an
+ESPHome proxy, but if you see errors like "Insufficient
+Authentication" or repeated disconnects right after connect, your
+proxy may need its bonding state refreshed. Power-cycle the ESP32 (it
+forgets its bond state on reset) and let HA reconnect — the proxy will
+re-bond on the next connect attempt.
+
 **`Total Energy` resets to zero on HA restart.**
 Shouldn't happen as of v0.5 (pulses are persisted via HA's `Store`). If
 it does, dump diagnostics and file an issue.
