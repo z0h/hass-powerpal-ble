@@ -67,22 +67,6 @@ class PowerpalConfigFlow(ConfigFlow, domain=DOMAIN):
             self._name = info.name if info else address
             return await self.async_step_settings()
 
-    async def async_step_manual(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Type-the-MAC fallback if no Powerpal is currently advertising."""
-        if user_input is not None:
-            address = user_input[CONF_ADDRESS].upper()
-            await self.async_set_unique_id(address)
-            self._abort_if_unique_id_configured()
-            self._address = address
-            self._name = address
-            return await self.async_step_settings()
-        return self.async_show_form(
-            step_id="manual",
-            data_schema=vol.Schema({vol.Required(CONF_ADDRESS): str}),
-        )
-
         # Build picker from any Powerpals currently in the bluetooth cache.
         current_ids = self._async_current_ids()
         self._discovered = {
@@ -109,6 +93,22 @@ class PowerpalConfigFlow(ConfigFlow, domain=DOMAIN):
             schema = vol.Schema({vol.Required(CONF_ADDRESS): str})
 
         return self.async_show_form(step_id="user", data_schema=schema)
+
+    async def async_step_manual(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Type-the-MAC fallback if no Powerpal is currently advertising."""
+        if user_input is not None:
+            address = user_input[CONF_ADDRESS].upper()
+            await self.async_set_unique_id(address)
+            self._abort_if_unique_id_configured()
+            self._address = address
+            self._name = address
+            return await self.async_step_settings()
+        return self.async_show_form(
+            step_id="manual",
+            data_schema=vol.Schema({vol.Required(CONF_ADDRESS): str}),
+        )
 
     # --- pairing code / pulses / interval ---------------------------------
     async def async_step_settings(
