@@ -249,14 +249,25 @@ class PowerpalClient:
 
         self._notify_listeners()
 
-    def _on_disconnect(self, _client) -> None:
+    def _on_disconnect(self, client) -> None:
         """Bleak fires this; backend threading is not guaranteed across
         platforms, so marshal to the captured event loop before mutating
         state or notifying listeners."""
         _LOGGER.debug("Powerpal disconnected: %s", self._ble_device.address)
-        self._dispatch_on_loop(self._handle_disconnect)
+        self._dispatch_on_loop(self._handle_disconnect, client)
 
-    def _handle_disconnect(self) -> None:
+    def _handle_disconnect(self, client) -> None:
+        # Backend disconnect detection can lag the physical drop. If a
+        # reconnect already produced a NEW client by the time the OLD
+        # client's callback lands here, acting on it would mark the healthy
+        # connection unauthenticated and trigger a teardown/reconnect loop.
+        # Only honour callbacks from the client we currently own.
+        if client is not self._client:
+            _LOGGER.debug(
+                "Ignoring disconnect from a superseded client on %s",
+                self._ble_device.address,
+            )
+            return
         self._authenticated = False
         self._cancel_auth_watchdog()
         if self.state.connected:
