@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 
 from homeassistant.components.bluetooth import (
@@ -31,6 +32,11 @@ _STORAGE_VERSION = 1
 # coalesces bursts on reconnect but limits the data lost to <1 min on a
 # hard crash that bypasses HA's clean-shutdown flush.
 _SAVE_DEBOUNCE_S = 60
+# After a failed connect attempt, ignore advertisements for this long.
+# establish_connection internally retries with backoff (60+ s per call);
+# without a cooldown every ~1-10 s advertisement queues another full cycle
+# on the connect lock for the duration of any outage.
+_RETRY_COOLDOWN_S = 30
 
 
 class PowerpalCoordinator:
@@ -64,6 +70,13 @@ class PowerpalCoordinator:
         self._unregister_bt_cb: Callable[[], None] | None = None
         self._unregister_unavailable: Callable[[], None] | None = None
         self._listeners: list[Callable[[PowerpalState], None]] = []
+        # Lifecycle + connect-attempt dedup. `_stopped` makes post-stop
+        # advertisement tasks inert (no zombie client, no straggler saves);
+        # `_connect_in_progress` + `_retry_after` stop advertisement storms
+        # from queueing concurrent/back-to-back establish_connection cycles.
+        self._stopped = False
+        self._connect_in_progress = False
+        self._retry_after = 0.0  # time.monotonic() deadline
         # Persisted accumulators so total/daily energy survive HA restarts —
         # without this, sensors with state_class=TOTAL_INCREASING reset to 0
         # on every restart and break the Energy Dashboard.
@@ -109,7 +122,12 @@ class PowerpalCoordinator:
         # _connect_and_setup reassigns it) could otherwise land the 60-s-later
         # fire on `_client is None` and persist a zero snapshot, clobbering
         # the real totals.
-        if state.total_pulses or state.daily_pulses:
+        # `_stopped` gate: a notification arriving during async_stop's
+        # client.stop() await must not re-arm a delayed save AFTER the
+        # shutdown flush — across an options-flow reload that straggler
+        # write (t+60 s, old Store, same storage key) could land after the
+        # new coordinator's first save and leave stale totals on disk.
+        if not self._stopped and (state.total_pulses or state.daily_pulses):
             snapshot = self._build_snapshot()
             self._store.async_delay_save(lambda: snapshot, _SAVE_DEBOUNCE_S)
 
@@ -192,6 +210,14 @@ class PowerpalCoordinator:
         await self._async_ensure_client(info.device)
 
     async def _async_ensure_client(self, ble_device) -> bool:
+        if self._stopped:
+            return False
+        if self._connect_in_progress:
+            # An attempt is already inside establish_connection (60+ s with
+            # internal retries). Don't queue another behind the lock.
+            return True
+        if time.monotonic() < self._retry_after:
+            return True
         if self._client is None:
             self._client = PowerpalClient(
                 ble_device,
@@ -232,14 +258,23 @@ class PowerpalCoordinator:
         else:
             self._client.update_ble_device(ble_device)
 
+        self._connect_in_progress = True
         try:
             await self._client.start()
+            self._retry_after = 0.0
             return True
         except Exception as err:
+            self._retry_after = time.monotonic() + _RETRY_COOLDOWN_S
             _LOGGER.warning(
-                "Failed to (re)connect to Powerpal %s: %s", self.address, err
+                "Failed to (re)connect to Powerpal %s (next attempt in "
+                "%d s): %s",
+                self.address,
+                _RETRY_COOLDOWN_S,
+                err,
             )
             return False
+        finally:
+            self._connect_in_progress = False
 
     def _seed_state_from_restored(self) -> None:
         """Apply persisted accumulators to the freshly-constructed client.
@@ -266,6 +301,7 @@ class PowerpalCoordinator:
         )
 
     async def async_stop(self) -> None:
+        self._stopped = True
         if self._unregister_bt_cb:
             self._unregister_bt_cb()
             self._unregister_bt_cb = None
