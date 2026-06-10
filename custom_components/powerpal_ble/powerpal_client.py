@@ -99,6 +99,18 @@ class PowerpalClient:
     def address(self) -> str:
         return self._ble_device.address
 
+    @property
+    def is_gatt_connected(self) -> bool:
+        """True while a live GATT link exists, regardless of `state.connected`.
+
+        `state.connected` is the *published* availability and can be flipped
+        False by HA's advertisement-unavailability tracker even though the
+        link is healthy (Powerpal stops advertising while connected). This
+        property reports the underlying link so callers can distinguish the
+        two.
+        """
+        return self._client is not None and self._client.is_connected
+
     def update_ble_device(self, ble_device: BLEDevice) -> None:
         """Swap the BLEDevice (e.g. seen by a different scanner) atomically."""
         self._ble_device = ble_device
@@ -119,6 +131,14 @@ class PowerpalClient:
                 and self._client.is_connected
                 and self._authenticated
             ):
+                # The link is healthy. If the HA unavailability tracker had
+                # flipped published state to disconnected (advertisements
+                # stop while connected), restore it now rather than waiting
+                # for the next measurement — at notification_interval=60
+                # that wait is up to an hour of false "unavailable".
+                if not self.state.connected:
+                    self.state.connected = True
+                    self._notify_listeners()
                 return
             # Tear down any wedged client (connected but not authenticated, or
             # disconnected). Quiet teardown — no spurious "disconnected"

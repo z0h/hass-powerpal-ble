@@ -155,6 +155,17 @@ class PowerpalCoordinator:
         # this address for the unavailability timeout, sensors go unavailable.
         @callback
         def _unavailable_cb(_info) -> None:
+            # Powerpal (like most single-central BLE peripherals) stops
+            # advertising while a GATT connection is open, so this tracker
+            # fires on every healthy session once the advertisement cache
+            # ages out. Only flip sensors if the link is actually gone.
+            if self._client is not None and self._client.is_gatt_connected:
+                _LOGGER.debug(
+                    "Powerpal %s advertisement timeout while GATT link is "
+                    "alive — expected while connected, ignoring",
+                    self.address,
+                )
+                return
             _LOGGER.debug("Powerpal %s marked unavailable", self.address)
             # Push a synthetic state with connected=False to flip sensors.
             if self._client is not None:
