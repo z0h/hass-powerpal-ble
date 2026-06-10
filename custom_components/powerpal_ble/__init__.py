@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from homeassistant.components.bluetooth import async_address_present
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS, Platform
 from homeassistant.core import HomeAssistant
@@ -68,7 +69,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: PowerpalConfigEntry) -> 
 
 
 async def _initial_advert_seen(hass: HomeAssistant, entry: PowerpalConfigEntry) -> bool:
-    from homeassistant.components.bluetooth import async_address_present
     return async_address_present(hass, entry.data[CONF_ADDRESS])
 
 
