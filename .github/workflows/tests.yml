@@ -60,3 +60,6 @@ jobs:
         uses: hacs/action@main
         with:
           category: integration
+          # Not yet in the home-assistant/brands registry — submitting a
+          # brands PR is the path to removing this ignore.
+          ignore: brands
