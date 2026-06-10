@@ -203,8 +203,21 @@ class PowerpalCoordinator:
             # calibration at that time wasn't recorded, so this assumes the
             # rate hasn't changed — acceptable approximation for migration).
             if self._restored_state is not None:
-                self._seed_state_from_restored()
-                self._restored_state = None
+                # A raise here must NOT escape: self._client is already
+                # assigned, so the next advertisement would skip seeding and
+                # connect with zeroed accumulators — and the first save would
+                # then overwrite the on-disk snapshot with near-zero totals.
+                # Degrading loudly to fresh accumulators is the lesser harm.
+                try:
+                    self._seed_state_from_restored()
+                except Exception:
+                    _LOGGER.exception(
+                        "Powerpal %s: persisted energy snapshot could not be "
+                        "restored; starting accumulators from zero",
+                        self.address,
+                    )
+                finally:
+                    self._restored_state = None
         else:
             self._client.update_ble_device(ble_device)
 

@@ -26,6 +26,7 @@ Known correctness note vs the reference:
 """
 from __future__ import annotations
 
+import math
 import struct
 from typing import Any
 
@@ -98,23 +99,28 @@ def restore_pulses_from_snapshot(
         total kWh continuous, so a `pulses_per_kwh` change via the options
         flow doesn't cause TOTAL_INCREASING to step
     """
-    if not snapshot:
+    if not snapshot or not isinstance(snapshot, dict):
         return (0, 0, 0)
 
-    total_pulses = snapshot.get("total_pulses")
-    daily_pulses = snapshot.get("daily_pulses")
+    total_pulses = _coerce_int(snapshot.get("total_pulses"))
+    daily_pulses = _coerce_int(snapshot.get("daily_pulses"))
 
     if total_pulses is None and "total_energy_kwh" in snapshot:
-        total_pulses = round(
-            float(snapshot["total_energy_kwh"]) * current_pulses_per_kwh
-        )
-        daily_pulses = round(
-            float(snapshot.get("daily_energy_kwh", 0.0)) * current_pulses_per_kwh
-        )
+        try:
+            total_pulses = round(
+                float(snapshot["total_energy_kwh"]) * current_pulses_per_kwh
+            )
+            daily_pulses = round(
+                float(snapshot.get("daily_energy_kwh", 0.0))
+                * current_pulses_per_kwh
+            )
+        except (TypeError, ValueError):
+            total_pulses = None
+            daily_pulses = None
 
-    total_pulses = int(total_pulses or 0)
-    daily_pulses = int(daily_pulses or 0)
-    day_key = int(snapshot.get("day_key", 0))
+    total_pulses = total_pulses or 0
+    daily_pulses = daily_pulses or 0
+    day_key = _coerce_int(snapshot.get("day_key")) or 0
 
     # If day_key wasn't persisted but daily was, we can't trust the daily
     # value (no way to know which calendar day it belongs to). Drop it
@@ -127,12 +133,32 @@ def restore_pulses_from_snapshot(
         calibration = float(calibration)
     except (TypeError, ValueError):
         calibration = current_pulses_per_kwh
-    # Guard against corrupted snapshots (zero/NaN/inf would divide badly).
-    if calibration > 0 and current_pulses_per_kwh > 0 and (
-        calibration != current_pulses_per_kwh and total_pulses
+    # Guard against corrupted snapshots: zero and NaN fail `> 0`, but inf
+    # passes it — and `current / inf == 0.0` would silently zero the totals,
+    # so finiteness must be checked explicitly on both operands.
+    if (
+        math.isfinite(calibration)
+        and calibration > 0
+        and math.isfinite(current_pulses_per_kwh)
+        and current_pulses_per_kwh > 0
+        and calibration != current_pulses_per_kwh
+        and total_pulses
     ):
         ratio = current_pulses_per_kwh / calibration
         total_pulses = round(total_pulses * ratio)
         daily_pulses = round(daily_pulses * ratio)
 
     return (total_pulses, daily_pulses, day_key)
+
+
+def _coerce_int(value: Any) -> int | None:
+    """int() with garbage tolerance — corrupted snapshot fields (strings,
+    lists, None) must degrade to "field absent", never raise: a raise during
+    restore strands the coordinator mid-seed and the next save would clobber
+    the on-disk snapshot with zeros."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

@@ -259,6 +259,55 @@ class RestorePulsesFromSnapshot(unittest.TestCase):
         self.assertEqual(total, 5000)
         self.assertEqual(daily, 100)
 
+    def test_inf_calibration_does_not_zero_totals(self):
+        # inf passes `> 0`; without an isfinite guard the rescale ratio is
+        # current/inf == 0.0 and totals are silently zeroed.
+        snap = {
+            "total_pulses": 5000,
+            "daily_pulses": 100,
+            "day_key": 1,
+            "calibration_ppkwh": float("inf"),
+        }
+        total, daily, _ = restore_pulses_from_snapshot(snap, 800)
+        self.assertEqual(total, 5000)
+        self.assertEqual(daily, 100)
+
+    def test_nan_calibration_does_not_rescale(self):
+        snap = {
+            "total_pulses": 5000,
+            "daily_pulses": 100,
+            "day_key": 1,
+            "calibration_ppkwh": float("nan"),
+        }
+        total, daily, _ = restore_pulses_from_snapshot(snap, 800)
+        self.assertEqual(total, 5000)
+
+    def test_garbage_pulse_fields_never_raise(self):
+        # A raise during restore strands the coordinator mid-seed; the next
+        # save would clobber the on-disk snapshot. Garbage must degrade.
+        for garbage in ("abc", [1, 2], {"x": 1}, "12.5"):
+            snap = {
+                "total_pulses": garbage,
+                "daily_pulses": garbage,
+                "day_key": garbage,
+            }
+            self.assertEqual(restore_pulses_from_snapshot(snap, 800), (0, 0, 0))
+
+    def test_garbage_day_key_drops_daily_only(self):
+        snap = {"total_pulses": 5000, "daily_pulses": 100, "day_key": "bogus"}
+        total, daily, day = restore_pulses_from_snapshot(snap, 800)
+        self.assertEqual(total, 5000)
+        self.assertEqual(daily, 0)  # unknown day boundary → drop daily
+        self.assertEqual(day, 0)
+
+    def test_garbage_kwh_migration_fields_never_raise(self):
+        snap = {"total_energy_kwh": "many", "daily_energy_kwh": None}
+        self.assertEqual(restore_pulses_from_snapshot(snap, 800), (0, 0, 0))
+
+    def test_non_dict_snapshot_yields_zeros(self):
+        for garbage in ("a string", 42, [1, 2, 3]):
+            self.assertEqual(restore_pulses_from_snapshot(garbage, 800), (0, 0, 0))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
