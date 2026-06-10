@@ -100,6 +100,18 @@ class MeasurementParsing(unittest.TestCase):
         _, pulses = parse_measurement(payload)
         self.assertEqual(pulses, 42)
 
+    def test_short_payload_raises(self):
+        with self.assertRaises(ValueError):
+            parse_measurement(struct.pack("<I", 1718000000))  # 4 bytes
+
+    def test_empty_payload_raises(self):
+        with self.assertRaises(ValueError):
+            parse_measurement(b"")
+
+    def test_exact_six_bytes(self):
+        _, pulses = parse_measurement(struct.pack("<IH", 1718000000, 7))
+        self.assertEqual(pulses, 7)
+
 
 class PowerCalculation(unittest.TestCase):
     """power_W = pulses * 60000 / (notification_interval * pulses_per_kwh).

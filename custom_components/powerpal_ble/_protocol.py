@@ -54,8 +54,14 @@ def parse_measurement(data: bytes) -> tuple[int, int]:
     """[unix_time:LE u32][pulses:LE u16]. Returns (unix_time, pulses).
 
     Trailing bytes are ignored (the device may include extra fields).
-    Caller must check `len(data) >= 6` before calling.
+    Raises ValueError on payloads shorter than 6 bytes — better than the
+    silently-truncated `struct.error` you'd get from `data[:6]` slicing
+    when the device emits an unexpectedly short notification.
     """
+    if len(data) < 6:
+        raise ValueError(
+            f"measurement payload must be >=6 bytes, got {len(data)}"
+        )
     return struct.unpack("<IH", data[:6])
 
 
