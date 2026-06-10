@@ -3,6 +3,8 @@
 ## v0.13.0
 Concurrency/lifecycle hardening pass — five fixes from an adversarial review of the BLE client and coordinator. No new features.
 
+- **CI activated**: the v0.6 sample workflow moved from `docs/ci-example.yml` to `.github/workflows/tests.yml` and gained `ruff` + `mypy --strict` jobs. Unit tests (43), syntax/JSON validation, lint, and HACS validation now run on every push and PR.
+
 - **Snapshot restore can no longer destroy energy history**: an exception while seeding accumulators from a corrupt persisted snapshot left a half-initialised client whose first save overwrote the on-disk totals with zeros. Seeding failure now degrades loudly to fresh accumulators, and `restore_pulses_from_snapshot` tolerates garbage fields (strings, lists, non-dict payloads) per-field. The `inf`-calibration case — which silently zeroed totals via a `current/inf == 0` rescale — is guarded with `math.isfinite` (the previous `> 0` check let it through).
 - **No more false "unavailable" while connected**: Powerpal stops advertising while a central is connected, so HA's advertisement-unavailability tracker fires on every healthy session; sensors flapped unavailable until the next measurement (up to a full notification interval). The coordinator now ignores the tracker while the GATT link is up, and `start()` repairs published state if it had been flipped.
 - **Stale disconnect callbacks ignored**: a late `disconnected_callback` from a superseded bleak client could mark a freshly established connection as dead and trigger a teardown/reconnect loop. Callbacks are now matched against the currently-owned client object.

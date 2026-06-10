@@ -18,6 +18,24 @@ jobs:
       - name: Run protocol unit tests
         run: python -m unittest tests.test_protocol -v
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install tooling
+        run: pip install ruff mypy
+      - name: ruff
+        run: ruff check custom_components tests
+      - name: mypy --strict on _protocol.py
+        # Only the pure-Python protocol module is strict-gated. HA-touching
+        # modules cascade into 'subclass of Any' errors without the HA stubs
+        # available in CI; not worth the type-ignore noise here.
+        run: mypy --strict --follow-imports=silent custom_components/powerpal_ble/_protocol.py
+
   syntax-and-json:
     runs-on: ubuntu-latest
     steps:
