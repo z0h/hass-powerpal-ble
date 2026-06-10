@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import voluptuous as vol
@@ -15,6 +16,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import callback
+from homeassistant.helpers.device_registry import format_mac
 
 from .const import (
     CONF_NOTIFICATION_INTERVAL,
@@ -24,6 +26,8 @@ from .const import (
     DEFAULT_PULSES_PER_KWH,
     DOMAIN,
 )
+
+_MAC_RE = re.compile(r"(?:[0-9a-f]{2}:){5}[0-9a-f]{2}")
 
 
 class PowerpalConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -98,16 +102,30 @@ class PowerpalConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Type-the-MAC fallback if no Powerpal is currently advertising."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            address = user_input[CONF_ADDRESS].upper()
-            await self.async_set_unique_id(address)
-            self._abort_if_unique_id_configured()
-            self._address = address
-            self._name = address
-            return await self.async_step_settings()
+            # Normalise before validating: format_mac canonicalises the
+            # common separator variants (AA-BB-.., aabbcc.., dotted) to
+            # lowercase-colon form, and passes anything unrecognisable
+            # through unchanged — which the regex then rejects. Without
+            # this, a non-canonical entry creates an entry whose bluetooth
+            # matcher can never fire: setup "succeeds" lazily and sensors
+            # sit unavailable forever with zero feedback (and the same MAC
+            # in two formats would produce two distinct unique_ids).
+            address = format_mac(user_input[CONF_ADDRESS].strip())
+            if _MAC_RE.fullmatch(address):
+                # HA bluetooth canonical form is uppercase on Linux.
+                address = address.upper()
+                await self.async_set_unique_id(address)
+                self._abort_if_unique_id_configured()
+                self._address = address
+                self._name = address
+                return await self.async_step_settings()
+            errors[CONF_ADDRESS] = "invalid_address"
         return self.async_show_form(
             step_id="manual",
             data_schema=vol.Schema({vol.Required(CONF_ADDRESS): str}),
+            errors=errors,
         )
 
     # --- pairing code / pulses / interval ---------------------------------

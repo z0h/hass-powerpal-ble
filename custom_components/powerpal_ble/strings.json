@@ -23,6 +23,9 @@
         }
       }
     },
+    "error": {
+      "invalid_address": "Enter a valid Bluetooth MAC address, e.g. AA:BB:CC:DD:EE:FF."
+    },
     "abort": {
       "already_configured": "This Powerpal is already configured."
     }
