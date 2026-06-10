@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.components.bluetooth import async_address_present
 from homeassistant.config_entries import ConfigEntry
@@ -25,7 +26,7 @@ PLATFORMS = [Platform.SENSOR]
 type PowerpalConfigEntry = ConfigEntry[PowerpalCoordinator]
 
 
-def _settings_from_entry(entry: PowerpalConfigEntry) -> dict:
+def _settings_from_entry(entry: PowerpalConfigEntry) -> dict[str, Any]:
     """Effective settings: data + any options overrides."""
     return {
         CONF_PULSES_PER_KWH: entry.options.get(
