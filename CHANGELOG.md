@@ -1,6 +1,9 @@
 # Changelog
 
 ## v0.12.0
+- **`encode_batch_size` fails loud on overflow**: previously silently `&0xFF`-truncated, which would write `batch_size=0` (undefined Powerpal behaviour) if `notification_interval` were ever widened past 255 in the config flow. Now raises `ValueError`. Config flow still caps at 60 — the guard is defense in depth.
+- **`parse_measurement` contract**: short payloads (`len < 6`) now raise `ValueError` rather than relying on the caller. `_handle_measurement` already guards `len < 6` so this is unreachable from production but tightens the unit-test surface.
+- **Cleanups**: hoisted `async_address_present` import in `__init__.py`; documented intentional plaintext pairing-code storage in `config_flow.py`; tightened `_settings_from_entry` return type to `dict[str, Any]`.
 - **Distinct energy entity IDs**: previously both kWh sensors fell back to the `ENERGY` device-class default name "Energy" (no `translations/<lang>.json` was shipped, so the `translation_key` lookup didn't resolve), producing colliding `sensor.<mac>_energy` and `sensor.<mac>_energy_2` entity IDs. Each `SensorEntityDescription` now sets `name` directly, so a fresh setup yields `sensor.<mac>_power`, `sensor.<mac>_daily_energy`, `sensor.<mac>_total_energy`, and `sensor.<mac>_battery`.
 - **Upgrade note**: HA's entity registry persists `entity_id` against the entity's `unique_id`, and remove + re-add does *not* free the old `entity_id` (HA keeps the entry as an orphan and re-adopts it on next setup). Existing installs therefore keep `_energy` / `_energy_2` until each sensor is renamed in the UI: Settings → Devices & Services → Powerpal → click the sensor → ⚙ → change "Entity ID" to `…_daily_energy` and `…_total_energy`. Long-term statistics follow the registry entry and are preserved across the rename; Energy Dashboard cards reference the new ID once renamed.
 
