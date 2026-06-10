@@ -36,8 +36,18 @@ def encode_pairing_code(code: int) -> bytes:
 
 
 def encode_batch_size(minutes: int) -> bytes:
-    """4-byte buffer [N, 0, 0, 0]. Matches powerpal_ble.h:129."""
-    return bytes([minutes & 0xFF, 0x00, 0x00, 0x00])
+    """4-byte buffer [N, 0, 0, 0]. Matches powerpal_ble.h:129.
+
+    The Powerpal stores `minutes` in a uint8_t field, so values >255 cannot
+    round-trip — `bytes([257 & 0xFF, ...])` would silently write batch_size=1.
+    The config flow caps user input at 60 today, but a future relaxation
+    must not be able to brick the device by writing 0; fail loudly here.
+    """
+    if not 1 <= minutes <= 0xFF:
+        raise ValueError(
+            f"batch_size minutes must be 1..255, got {minutes}"
+        )
+    return bytes([minutes, 0x00, 0x00, 0x00])
 
 
 def parse_measurement(data: bytes) -> tuple[int, int]:

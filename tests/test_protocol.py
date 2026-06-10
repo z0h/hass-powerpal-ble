@@ -61,9 +61,23 @@ class BatchSizeEncoding(unittest.TestCase):
     def test_hour(self):
         self.assertEqual(encode_batch_size(60), b"\x3c\x00\x00\x00")
 
-    def test_overflow_truncates(self):
-        # The C++ field is uint8_t; we mask &0xFF.
-        self.assertEqual(encode_batch_size(256), b"\x00\x00\x00\x00")
+    def test_max_uint8(self):
+        self.assertEqual(encode_batch_size(255), b"\xff\x00\x00\x00")
+
+    def test_overflow_raises(self):
+        # The C++ field is uint8_t. Truncating 256 to 0 would write batch=0
+        # and brick the device — fail loud instead.
+        with self.assertRaises(ValueError):
+            encode_batch_size(256)
+
+    def test_zero_raises(self):
+        # batch_size=0 has undefined Powerpal behaviour.
+        with self.assertRaises(ValueError):
+            encode_batch_size(0)
+
+    def test_negative_raises(self):
+        with self.assertRaises(ValueError):
+            encode_batch_size(-1)
 
 
 class MeasurementParsing(unittest.TestCase):
