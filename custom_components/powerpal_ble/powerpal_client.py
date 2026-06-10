@@ -173,6 +173,20 @@ class PowerpalClient:
         if self._closed:
             return  # stop() raced; outer start() will teardown.
 
+        # 0. Powerpal requires BLE-level bonding before it accepts the
+        # application-level pairing-code GATT write — the GATT write
+        # returns "Insufficient Authentication" (BLE error 5) otherwise.
+        # The C++ component (the reference) waits for ESP_GAP_BLE_AUTH_CMPL_EVT;
+        # the equivalent in bleak is explicit pair() before any protected
+        # operation. Some backends/devices auto-pair and pair() is a no-op
+        # or unsupported — that's fine, log and continue; the subsequent
+        # write will surface the real error if bonding actually failed.
+        try:
+            await self._client.pair()
+            _LOGGER.debug("BLE pair OK on %s", self._ble_device.address)
+        except (BleakError, NotImplementedError) as err:
+            _LOGGER.debug("pair() unavailable or skipped: %s", err)
+
         # 1. Authenticate by writing the pairing code (4-byte LE).
         await self._client.write_gatt_char(
             PAIRING_CODE_UUID, encode_pairing_code(self._pairing_code), response=True
