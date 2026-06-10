@@ -2,7 +2,7 @@
 
 ## v0.12.0
 - **Distinct energy entity IDs**: previously both kWh sensors fell back to the `ENERGY` device-class default name "Energy" (no `translations/<lang>.json` was shipped, so the `translation_key` lookup didn't resolve), producing colliding `sensor.<mac>_energy` and `sensor.<mac>_energy_2` entity IDs. Each `SensorEntityDescription` now sets `name` directly, so a fresh setup yields `sensor.<mac>_power`, `sensor.<mac>_daily_energy`, `sensor.<mac>_total_energy`, and `sensor.<mac>_battery`.
-- **Upgrade note**: HA's entity registry remembers the entity_id chosen at first registration, so existing installs keep `_energy` / `_energy_2` until the integration is removed and re-added (Settings → Devices & Services → Powerpal → ⋮ → Delete, then re-discover). The Energy Dashboard will need the new `_daily_energy` / `_total_energy` IDs added after re-adding. Long-term statistics from the old IDs are not carried over.
+- **Upgrade note**: HA's entity registry persists `entity_id` against the entity's `unique_id`, and remove + re-add does *not* free the old `entity_id` (HA keeps the entry as an orphan and re-adopts it on next setup). Existing installs therefore keep `_energy` / `_energy_2` until each sensor is renamed in the UI: Settings → Devices & Services → Powerpal → click the sensor → ⚙ → change "Entity ID" to `…_daily_energy` and `…_total_energy`. Long-term statistics follow the registry entry and are preserved across the rename; Energy Dashboard cards reference the new ID once renamed.
 
 ## v0.10.0
 - Pairing-code-timeout watchdog. Wrong codes are now diagnosed in the log instead of being silently invisible (Powerpal accepts any 32-bit value at GATT level and just stops sending notifications for an incorrect code).
