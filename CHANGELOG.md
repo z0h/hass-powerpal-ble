@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.13.0
+Concurrency/lifecycle hardening pass — five fixes from an adversarial review of the BLE client and coordinator. No new features.
+
+- **Snapshot restore can no longer destroy energy history**: an exception while seeding accumulators from a corrupt persisted snapshot left a half-initialised client whose first save overwrote the on-disk totals with zeros. Seeding failure now degrades loudly to fresh accumulators, and `restore_pulses_from_snapshot` tolerates garbage fields (strings, lists, non-dict payloads) per-field. The `inf`-calibration case — which silently zeroed totals via a `current/inf == 0` rescale — is guarded with `math.isfinite` (the previous `> 0` check let it through).
+- **No more false "unavailable" while connected**: Powerpal stops advertising while a central is connected, so HA's advertisement-unavailability tracker fires on every healthy session; sensors flapped unavailable until the next measurement (up to a full notification interval). The coordinator now ignores the tracker while the GATT link is up, and `start()` repairs published state if it had been flipped.
+- **Stale disconnect callbacks ignored**: a late `disconnected_callback` from a superseded bleak client could mark a freshly established connection as dead and trigger a teardown/reconnect loop. Callbacks are now matched against the currently-owned client object.
+- **Connect-attempt dedup + 30 s retry cooldown**: during an outage, every advertisement queued a fresh `establish_connection` cycle behind the connect lock (log spam, adapter contention, blocked unload). One attempt in flight at a time; failures arm a cooldown.
+- **Coordinator lifecycle gate**: explicit `_stopped` flag — post-stop advertisement tasks can no longer construct a zombie client, and a notification arriving during shutdown can no longer re-arm a delayed save after the flush (stale-totals window across an options-flow reload).
+- **Manual address entry validated**: non-canonical MAC input (`aabbccddeeff`, dashes, whitespace) previously created a permanently dead entry with no feedback — the bluetooth matcher never fired. Input is now normalised via `format_mac`, validated, and rejected with a form error.
+
 ## v0.12.0
 - **`encode_batch_size` fails loud on overflow**: previously silently `&0xFF`-truncated, which would write `batch_size=0` (undefined Powerpal behaviour) if `notification_interval` were ever widened past 255 in the config flow. Now raises `ValueError`. Config flow still caps at 60 — the guard is defense in depth.
 - **`parse_measurement` contract**: short payloads (`len < 6`) now raise `ValueError` rather than relying on the caller. `_handle_measurement` already guards `len < 6` so this is unreachable from production but tightens the unit-test surface.
