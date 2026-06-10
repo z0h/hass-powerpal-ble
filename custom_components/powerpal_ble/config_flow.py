@@ -115,6 +115,11 @@ class PowerpalConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
+            # CONF_PAIRING_CODE is persisted in plaintext under HA's
+            # `.storage/core.config_entries` — this matches standard HA
+            # convention for device credentials (no per-integration secret
+            # store exists). diagnostics.py redacts it; powerpal_client never
+            # logs it. Intentional — don't "fix" by moving to logs/env.
             return self.async_create_entry(
                 title=self._name or self._address,
                 data={
